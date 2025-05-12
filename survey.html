@@ -1,0 +1,161 @@
+<!-- survey.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>问卷调查</title>
+    <style>
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .question { margin-bottom: 20px; }
+        label { display: block; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>用户满意度调查</h1>
+        <form id="surveyForm">
+            <div class="question">
+                <label>1. 您的年龄：</label>
+                <input type="number" id="age" name="age" required>
+            </div>
+
+            <div class="question">
+                <label>2. 您的性别：</label>
+                <label><input type="radio" name="gender" value="male" required> 男</label>
+                <label><input type="radio" name="gender" value="female"> 女</label>
+            </div>
+
+            <div class="question">
+                <label>3. 您如何知道我们？</label>
+                <select id="source" name="source" required>
+                    <option value="">请选择</option>
+                    <option value="friend">朋友推荐</option>
+                    <option value="ad">广告</option>
+                    <option value="search">搜索引擎</option>
+                </select>
+            </div>
+
+            <div class="question">
+                <label>4. 请留下您的建议：</label>
+                <textarea id="suggestion" rows="4"></textarea>
+            </div>
+            <input type="hidden" id="basicInfo" name="basicInfo">
+
+            <button type="submit">提交问卷</button>
+        </form>
+    </div>
+
+    <script>
+        let startTime = null;
+        let timerInterval = null;
+        let isSubmitting = false;
+
+        function startTimer() {
+            startTime = Date.now();
+            document.getElementById('timer').textContent = '00:00';
+            
+            timerInterval = setInterval(() => {
+                const seconds = Math.floor((Date.now() - startTime) / 1000);
+                const display = `${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;
+                document.getElementById('timer').textContent = display;
+            }, 1000);
+        }
+
+        window.addEventListener('message', (e) => {
+            if (e.data === 'startTimer') {
+                startTimer();
+            }
+        });
+
+        function stopTimer() {
+            clearInterval(timerInterval);
+            return Math.floor((Date.now() - startTime) / 1000); // 返回秒数
+        }
+
+        window.onbeforeunload = function() {
+            localStorage.setItem('surveyStartTime', startTime);
+        };
+
+        const savedTime = localStorage.getItem('surveyStartTime');
+        if (savedTime) {
+            startTime = parseInt(savedTime);
+            localStorage.removeItem('surveyStartTime');
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                clearInterval(timerInterval);
+            } else {
+                startTime += (Date.now() - pauseTime);
+                timerInterval = setInterval(updateTimer, 1000);
+            }
+        });
+
+        document.getElementById('surveyForm').addEventListener('submit', async (e) => {
+            if (isSubmitting) return;
+            isSubmitting = true;
+            try {
+                e.preventDefault();
+
+                // 清除本地存储
+                localStorage.removeItem('surveyStartTime');
+
+                // 从sessionStorage获取基本信息
+                const basicInfo = JSON.parse(sessionStorage.getItem('basicInfo'));
+                if (!basicInfo) {
+                    window.location.href = 'step1.html'; // 未填写基本信息则重定向
+                }
+
+                // 将基本信息注入隐藏字段
+                document.getElementById('basicInfo').value = JSON.stringify(basicInfo);
+
+                const formData = {
+                    ...basicInfo,
+                    age: parseInt(document.getElementById('age').value) || 0,
+                    gender: document.querySelector('[name="gender"]:checked')?.value || 'unknown',
+                    source: document.getElementById('source').value,
+                    suggestion: document.getElementById('suggestion').value.trim(),
+                };
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                try {
+                    const response = await fetch('http://localhost:3000/submit-survey', {
+                        signal: controller.signal,
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(formData)
+                    });
+                    clearTimeout(timeoutId);
+
+                    if (response.ok) {
+                        alert('提交成功！感谢参与！');
+                        document.getElementById('surveyForm').reset();
+                    } else {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || '请求失败');
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert(error.name === 'AbortError' 
+                        ? '请求超时，请检查网络' 
+                        : error.message || '提交失败');
+                }
+                sessionStorage.removeItem('basicInfo');
+            } finally {
+                isSubmitting = false;
+            }
+        });
+
+        const ageInput = document.getElementById('age');
+        ageInput.addEventListener('input', () => {
+            const value = parseInt(ageInput.value);
+            ageInput.setCustomValidity(
+                (value < 12 || value > 100) 
+                ? '年龄需在12-100之间' 
+                : ''
+            );
+        });
+    
+    </script>
+</body>
+</html>
